@@ -216,7 +216,7 @@ float ring(int arr[], int cnt){
 void hop(struct job_record *job_ptr)
 {
 	FILE *f;
-	f = fopen ("/home/ubuntu/workload/hops.txt", "a");
+	f = fopen ("/home/gagandeep/slurmcost/hops.txt", "a");
 	int i, begin, end;
 	int size = job_ptr->node_cnt;
 	int switches[size];
@@ -301,7 +301,7 @@ void hop(struct job_record *job_ptr)
 
 	// Add this information to a file
 	FILE *info;
-	info = fopen("/home/ubuntu/workload/debug.txt","a");
+	info = fopen("/home/gagandeep/slurmcost/debug.txt","a");
 	fputs(job_info,info); // Append jobinfo 
         fprintf(info,"\n");
 	
