@@ -212,6 +212,50 @@ float ring(int arr[], int cnt){
         return (max_hops*(cnt-1));
 }
 
+//calculated hop-bytes based on switches array (which gives which node is present on which switch) for the entire matrix
+long double calc_hops_comm_matrix(int switches[], int size, struct job_record *job_ptr) {
+        //file pointer to read communication pattern from communication file path
+        FILE* fcomm = fopen(job_ptr->comment + 2, "r");         
+        int nodes = job_ptr->node_cnt; //number of nodes required for job
+        
+        //scanning communication pattern from file (path provided in job comment parameter) and storing in commpattern 2D array
+        int node1, node2;
+        long double val;
+        long double comm_hops_max = 0; //stores max hops encountered 
+        long double comm_hops_local;
+        long double comm_hops_total = 0; //total hop bytes
+
+        for (node1 = 0; node1 < nodes; node1++) {
+                for (node2 = 0; node2 < nodes; node2++) {
+                        fscanf(fcomm, "%Lf", &val);
+						//if mat[node1][node2] > 0
+                        if (val > 0) {
+                                float c = 0, c1 = 0, c2 = 0, c3 = 0;
+                                if (switches[node1] == switches[node2]) {
+										//find contention factor
+                                        c = (switch_record_table[switches[node1]].comm_jobs) / ((float)switch_record_table[switches[node1]].num_nodes);
+                                        comm_hops_local = 2 * val * (1 + c); 
+                                }
+                                else {
+										//find contention on both switches
+                                        c1 = (switch_record_table[switches[node1]].comm_jobs) / ((float)switch_record_table[switches[node1]].num_nodes);
+                                        c2 = (switch_record_table[switches[node2]].comm_jobs) / ((float)switch_record_table[switches[node2]].num_nodes);
+                                        c3 = (switch_record_table[switches[node1]].comm_jobs + switch_record_table[switches[node2]].comm_jobs) / 
+                                                ((float)switch_record_table[switches[node1]].num_nodes + (float)switch_record_table[switches[node2]].num_nodes);
+                                        c = c1 + c2 + c3/2; //final contention
+                                        comm_hops_local = (2 * (switch_levels+1)) * val * (1 + c);
+                                }
+								//update max hop-bytes
+                                if (comm_hops_local > comm_hops_max) {
+                                        comm_hops_max = comm_hops_local;
+                                }
+                                comm_hops_total += comm_hops_local;
+                        }
+                }
+        }
+        fclose(fcomm); //close file
+        return comm_hops_total / 2; //since c[i][j] and c[j][i] should only be counted once for finding hop bytes
+}
 
 void hop(struct job_record *job_ptr)
 {
@@ -386,14 +430,23 @@ void hop(struct job_record *job_ptr)
         //debug("Calculating ring hops");
         float ring_hops = ring(switches, job_ptr->node_cnt);
 
-        char temp[150];
+        char temp[1000];
 
-        if (job_ptr->comment)
-                sprintf(temp,"%s %"PRIu32" %s %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,job_ptr->comment,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
-        else
-                sprintf(temp,"%s %"PRIu32" 0 %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
+		//if communication matrix path is given
+		if (strlen(job_ptr->comment) > 3) {
+			long double comm_hops = calc_hops_comm_matrix(switches, size, job_ptr);
+			sprintf(temp,"%s %"PRIu32" %s %f %f %f %f %f %f %Lf", job_ptr->name, job_ptr->job_id, job_ptr->comment, comm_hops);
+			debug("Hops calculated according to communication matrix: %Lf", comm_hops);
+		}
+		//comment is either 0/1/1:x
+		else {
+			if (job_ptr->comment)
+					sprintf(temp,"%s %"PRIu32" %s %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,job_ptr->comment,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
+			else
+					sprintf(temp,"%s %"PRIu32" 0 %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
 
-        debug("Recursive FatHops:%f TreeHops:%f | Reduce FatHops = %f Treehops =%f | Binomial:%f Ring:%f | temp: %s",rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops,temp);
+			debug("Recursive FatHops:%f TreeHops:%f | Reduce FatHops = %f Treehops =%f | Binomial:%f Ring:%f | temp: %s",rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops,temp);
+		}
 
 	fputs(temp,f);
 	fprintf(f,"\n");
