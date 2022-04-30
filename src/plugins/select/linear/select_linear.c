@@ -1980,7 +1980,7 @@ static int _job_test_topo(struct job_record *job_ptr, bitstr_t *bitmap,
 #ifdef JOBAWARE2
 	int comm, best_comm;
 	float ratio, best_ratio;
-	float hops, bal_hops;
+	long double hops, bal_hops;
 	int suff, best_suff;
 	int busy_nodes;
 #endif
@@ -2443,7 +2443,7 @@ static int _job_test_topo(struct job_record *job_ptr, bitstr_t *bitmap,
 	hops = expected_hops(job_ptr, switch_alloc_nodes, switch_idx,want_nodes);
 //	debug("Calculate BALANCEED hops");
 	bal_hops = expected_hops(job_ptr, bal_switch_alloc_nodes, bal_switch_idx,want_nodes);
-	debug ("Balanced_Hops:%f Greedy_Hops:%f",bal_hops,hops);
+	debug ("Balanced_Hops:%Lf Greedy_Hops:%Lf",bal_hops,hops);
 
 	if (job_ptr->comment && strncmp(job_ptr->comment,"1",1)==0){
 		if (hops >= bal_hops){

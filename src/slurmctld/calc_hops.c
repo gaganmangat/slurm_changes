@@ -99,32 +99,50 @@ int inc_cmp(const void *a, const void *b){
 		else
 			return switch_record_table[idxa].comm_jobs > switch_record_table[idxb].comm_jobs ? -1 : 1;
 }
+
 // For balanced allocation in select/linear
 void balanced_alloc(struct job_record *job_ptr,uint32_t* switch_node_cnt,
-	       	int* switch_idx, uint32_t want_nodes, int* switch_alloc_nodes){
-
-        uint32_t curr_size = want_nodes;
-        uint32_t rem_nodes = want_nodes;
+                int* switch_idx, uint32_t want_nodes, int* switch_alloc_nodes) {
+        uint32_t curr_size = want_nodes; //total number of required nodes
+        uint32_t rem_nodes = want_nodes; //number of remaining nodes to allocate
         int i, nalloc;
-        uint32_t* free_nodes;
+        uint32_t* free_nodes; //array representing number of free nodes on every switch
 
+        // for(i=0; i<switch_record_cnt; i++){
+        //         debug("switch_node_cnt:%d", switch_node_cnt[i]);        
+        // }
+
+        //switch_record_cnt gives the total number of switches (size of switch_record_table)
         free_nodes = xcalloc(switch_record_cnt, sizeof(uint32_t));
 	
         // Sort the switch_node_cnt array
         for(i=0; i<switch_record_cnt; i++){
-                switch_idx[i] = i;
-                free_nodes[i] = 0;
-                switch_alloc_nodes[i] = 0;
+                switch_idx[i] = i; //ordering of switches
+                free_nodes[i] = 0; //number of free nodes on switch
+                switch_alloc_nodes[i] = 0; //number of allocated nodes on switch
         }
-        node_cnt = switch_node_cnt;
+
+        node_cnt = switch_node_cnt; //gives already allocated nodes on every switch
+
+        //sort switch_idx array (containing switch numbers) according to node_cnt array (containing free numbers)
         if (job_ptr->comment && strncmp(job_ptr->comment,"1",1)==0)
        		qsort(switch_idx,switch_record_cnt, sizeof(*switch_idx), desc_cmp);
 	else 
 		qsort(switch_idx,switch_record_cnt, sizeof(*switch_idx), inc_cmp);
+        
+        //find free nodes on every switch
+        //free_nodes will contain free nodes on switches in order of the sorting of switch numbers
+        //eg- if switch_idx after sorting is 5,2,1,4..
+        //then free_nodes will contain free nodes for switches 5, 2, 1, 4,.. in order
+
         for(i=0; i<switch_record_cnt; i++)
                 free_nodes[i] = switch_node_cnt[switch_idx[i]];
+        
+        // for(i=0; i<switch_record_cnt; i++){
+        //         debug("free_nodes[i]:%d", free_nodes[i]);        
+        // }
 
-	if (job_ptr->comment && strncmp(job_ptr->comment,"1",1)==0){
+	if (job_ptr->comment && strncmp(job_ptr->comment,"1", 1) == 0) {
         	// Forward pass to allocate nodes equally
         	for(i=0; (i<switch_record_cnt && rem_nodes && free_nodes[i]); i++){
                 	while (curr_size > free_nodes[i])
@@ -140,6 +158,7 @@ void balanced_alloc(struct job_record *job_ptr,uint32_t* switch_node_cnt,
         	//Backtrack if more nodes required
         	if (rem_nodes)
         	        i--;
+                        //i is at the last switch (switch with min number of free nodes)
         	while(rem_nodes>0 && i>=0){
                 	nalloc = (free_nodes[i] < rem_nodes) ? free_nodes[i]:rem_nodes;
                 	debug("%s: found switch:%d for allocation- nodes:%d "
@@ -150,14 +169,14 @@ void balanced_alloc(struct job_record *job_ptr,uint32_t* switch_node_cnt,
 			i--;
         	}
 	}
-	else{
-		for(i=0; (i<switch_record_cnt && rem_nodes && free_nodes[i]); i++){
-			nalloc = (free_nodes[i] < rem_nodes) ? free_nodes[i]:rem_nodes;
+	else {
+		for(i = 0; (i < switch_record_cnt && rem_nodes && free_nodes[i]); i++){
+			nalloc = (free_nodes[i] < rem_nodes) ? free_nodes[i] : rem_nodes;
 			debug("%s: found switch:%d for allocation- nodes:%d "
                                 "allocated:%u ", __func__,switch_idx[i], free_nodes[i], nalloc);
 			switch_alloc_nodes[i] = nalloc;
-			free_nodes[i]-=nalloc;
-			rem_nodes-=nalloc;
+			free_nodes[i] -= nalloc;
+			rem_nodes -= nalloc;
 		}
 	}
 
@@ -294,8 +313,60 @@ float exp_ring(int arr[], int comm_jobs[], int cnt){
         return (max_hops*(cnt-1));
 }
 
+long double exp_calc_hops_comm_matrix(int switches[], int comm_jobs[], int size, struct job_record *job_ptr) {
+        //file pointer to read communication pattern from communication file path
+        FILE* fcomm = fopen(job_ptr->comment + 2, "r"); 
+        int nodes = size; //number of nodes required for job
+        
+        //scanning communication pattern from file (path provided in job comment parameter) and storing in commpattern 2D array
+        int node1, node2;
+        long double val;
+        long double comm_hops_max = 0; //stores max hops encountered 
+        long double comm_hops_local;
+        long double comm_hops_total = 0; //total hop bytes
 
-float expected_hops(struct job_record *job_ptr, int *switch_alloc_nodes,
+        for (node1 = 0; node1 < nodes; node1++) {
+                for (node2 = 0; node2 < nodes; node2++) {
+                        fscanf(fcomm, "%Lf", &val);
+                        if (val > 0) {
+                                float c = 0, c1 = 0, c2 = 0, c3 = 0;
+                                //debug("Pair (%d,%d), with value %Lf. switches= %d,%d", node1, node2, val, switches[node1], switches[node2]);
+
+                                //if both the nodes are on the same leaf switch, the hop distance between them will be 2.
+                                if (switches[node1] == switches[node2]) {
+                                        //debug("same switch");
+                                        //debug("node: %d, commjobs: %d, numnodes: %d", node1, comm_jobs[node1], switch_record_table[switches[node1]].num_nodes);
+                                        c = (comm_jobs[node1])/((float)switch_record_table[switches[node1]].num_nodes);
+                                        //debug("size: %Lf c: %f", val, c);
+                                        comm_hops_local = 2 * val * (1 + c); 
+                                        //debug("hops--%Lf", comm_hops_local);
+                                }
+                                //if the two nodes are not on the same leaf switch, the hop distance will be 2 * (switch_levels+1)
+                                else {
+                                        //debug("different switch");
+                                        //debug("node1: %d, commjobs: %d, numnodes: %d", node1, comm_jobs[node1], switch_record_table[switches[node1]].num_nodes);
+                                        c1 = comm_jobs[node1] / ((float)switch_record_table[switches[node1]].num_nodes);
+                                        c2 = comm_jobs[node2] / ((float)switch_record_table[switches[node2]].num_nodes);
+                                        c3 = (comm_jobs[node1] + comm_jobs[node2]) / 
+                                                ((float)switch_record_table[switches[node1]].num_nodes + (float)switch_record_table[switches[node1]].num_nodes);
+                                        c = c1 + c2 + c3/2;
+                                        //debug("size: %Lf c: %f switchlevels: %d", val, c, switch_levels);
+                                        comm_hops_local = (2 * (switch_levels+1)) * val * (1 + c);
+                                }
+                                
+                                if (comm_hops_local > comm_hops_max) {
+                                        comm_hops_max = comm_hops_local;
+                                }
+                                comm_hops_total += comm_hops_local;
+                                //debug("Max hops between pairs %d and %d: %Lf %Lf(max)", node1, node2, comm_hops_local, comm_hops_max);
+                        }
+                }
+        }
+        fclose(fcomm);
+        return comm_hops_total / 2;
+}
+
+long double expected_hops(struct job_record *job_ptr, int *switch_alloc_nodes,
 			int *switch_idx, uint32_t want_nodes){
 	int i,j,k=0;
 	uint32_t size = want_nodes;
@@ -322,6 +393,14 @@ float expected_hops(struct job_record *job_ptr, int *switch_alloc_nodes,
 			j++;		
 		}
 	}
+
+	//adaptive algorithm using comm matrix hops
+	if (strlen(job_ptr->comment) > 3) {
+			debug("calling exp_calc_hops_comm_matrix");
+			long double comm_hops_total = exp_calc_hops_comm_matrix(switches, comm_jobs, size, job_ptr);
+			return comm_hops_total;
+	}
+
 	size = pow(2,ceil(log(size)/log(2)));
 // Calculate Hops for recursive halving
 // Find based on which pattern to compare cost(Expected comments- 1:1,1:2,1:3,1:4,1:5)
@@ -604,6 +683,51 @@ float ring(int arr[], int cnt){
 	return (max_hops*(cnt-1));
 }
 
+//calculated hop-bytes based on switches array (which gives which node is present on which switch) for the entire matrix
+long double calc_hops_comm_matrix(int switches[], int size, struct job_record *job_ptr) {
+        //file pointer to read communication pattern from communication file path
+        FILE* fcomm = fopen(job_ptr->comment + 2, "r");         
+        int nodes = job_ptr->node_cnt; //number of nodes required for job
+        
+        //scanning communication pattern from file (path provided in job comment parameter) and storing in commpattern 2D array
+        int node1, node2;
+        long double val;
+        long double comm_hops_max = 0; //stores max hops encountered 
+        long double comm_hops_local;
+        long double comm_hops_total = 0; //total hop bytes
+
+        for (node1 = 0; node1 < nodes; node1++) {
+                for (node2 = 0; node2 < nodes; node2++) {
+                        fscanf(fcomm, "%Lf", &val);
+						//if mat[node1][node2] > 0
+                        if (val > 0) {
+                                float c = 0, c1 = 0, c2 = 0, c3 = 0;
+                                if (switches[node1] == switches[node2]) {
+										//find contention factor
+                                        c = (switch_record_table[switches[node1]].comm_jobs) / ((float)switch_record_table[switches[node1]].num_nodes);
+                                        comm_hops_local = 2 * val * (1 + c); 
+                                }
+                                else {
+										//find contention on both switches
+                                        c1 = (switch_record_table[switches[node1]].comm_jobs) / ((float)switch_record_table[switches[node1]].num_nodes);
+                                        c2 = (switch_record_table[switches[node2]].comm_jobs) / ((float)switch_record_table[switches[node2]].num_nodes);
+                                        c3 = (switch_record_table[switches[node1]].comm_jobs + switch_record_table[switches[node2]].comm_jobs) / 
+                                                ((float)switch_record_table[switches[node1]].num_nodes + (float)switch_record_table[switches[node2]].num_nodes);
+                                        c = c1 + c2 + c3/2; //final contention
+                                        comm_hops_local = (2 * (switch_levels+1)) * val * (1 + c);
+                                }
+								//update max hop-bytes
+                                if (comm_hops_local > comm_hops_max) {
+                                        comm_hops_max = comm_hops_local;
+                                }
+                                comm_hops_total += comm_hops_local;
+                        }
+                }
+        }
+        fclose(fcomm); //close file
+        return comm_hops_total / 2; //since c[i][j] and c[j][i] should only be counted once for finding hop bytes
+}
+
 void hop(struct job_record *job_ptr)
 {
 	FILE *f;
@@ -798,14 +922,22 @@ void hop(struct job_record *job_ptr)
 	//debug("Calculating ring hops");
 	float ring_hops = ring(switches, job_ptr->node_cnt);
 
-	char temp[150];
-	
-	if (job_ptr->comment)
-		sprintf(temp,"%s %"PRIu32" %s %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,job_ptr->comment,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
-	else 
-		sprintf(temp,"%s %"PRIu32" 0 %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
+	char temp[1000];
+	//if communication matrix path is given
+	if (strlen(job_ptr->comment) > 3) {
+		long double comm_hops = calc_hops_comm_matrix(switches, size, job_ptr);
+		sprintf(temp,"%s %"PRIu32" %s %f %f %f %f %f %f %Lf", job_ptr->name, job_ptr->job_id, job_ptr->comment, comm_hops);
+		debug("Hops calculated according to communication matrix: %Lf", comm_hops);
+	}
+	//comment is either 0/1/1:x
+	else {
+		if (job_ptr->comment)
+			sprintf(temp,"%s %"PRIu32" %s %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,job_ptr->comment,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
+		else 
+			sprintf(temp,"%s %"PRIu32" 0 %f %f %f %f %f %f",job_ptr->name,job_ptr->job_id,rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops);
 
-	debug("Recursive FatHops:%f TreeHops:%f | Reduce FatHops = %f Treehops =%f | Binomial:%f Ring:%f | temp: %s",rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops,temp);
+		debug("Recursive FatHops:%f TreeHops:%f | Reduce FatHops = %f Treehops =%f | Binomial:%f Ring:%f | temp: %s",rec_fathops,rec_treehops,red_fathops,red_treehops,bin_hops,ring_hops,temp);
+	}
 	fputs(temp,f);
 	fprintf(f,"\n");
 	fclose(f);

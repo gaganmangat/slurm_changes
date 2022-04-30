@@ -36,7 +36,7 @@ extern int switch_record_cnt;
 extern void balanced_alloc(struct job_record *job_ptr,uint32_t* switch_node_cnt,
 	       	int* switch_idx, uint32_t want_nodes, int* switch_alloc_nodes);
 extern void hop(struct job_record * job_ptr);
-extern float expected_hops(struct job_record *job_ptr, int *switch_alloc_nodes,
+extern long double expected_hops(struct job_record *job_ptr, int *switch_alloc_nodes,
                         int *switch_idx, uint32_t want_nodes);
 //extern struct table *createTable(int size);
 extern void insert(struct table *t,uint32_t key,int* val, int n);
