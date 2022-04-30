@@ -206,7 +206,11 @@ idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, idx_t* vsiz
 		//it makes use of the vsize array where vsize[i] denotes the data sent to all other nodes by node i
         if (totalv == 1) {
                 options[METIS_OPTION_OBJTYPE] = METIS_OBJTYPE_VOL;
-                int ret = METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, vsize, 
+				// debug("Calling kway with obj=totalv");
+				//giving vsize here gives segmentation fault for 512 nodes (does not give for < 512 nodes)
+                // int ret = METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, vsize, 
+                //         NULL, &npart, NULL, NULL, options, &objval, part);
+                int ret = METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, NULL, 
                         NULL, &npart, NULL, NULL, options, &objval, part);
                 debug("partitioning ret:%d (totalvol) : %d", ret, objval);
         }
@@ -261,7 +265,7 @@ idx_t* matrix_to_partition(int nodes, int edges, int* commpattern, int npart) {
         //         debug("adjncy[%d]: %d,  adjwgt[%d]: %d", i, adjncy[i], i, adjwgt[i]);
         // }
 
-        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 0);
+        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 1);
         //idx_t* part2 = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 1);
         //free(part2);
 
