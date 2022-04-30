@@ -435,7 +435,7 @@ void hop(struct job_record *job_ptr)
 		//if communication matrix path is given
 		if (strlen(job_ptr->comment) > 3) {
 			long double comm_hops = calc_hops_comm_matrix(switches, size, job_ptr);
-			sprintf(temp,"%s %"PRIu32" %s %f %f %f %f %f %f %Lf", job_ptr->name, job_ptr->job_id, job_ptr->comment, comm_hops);
+			sprintf(temp,"%s %"PRIu32" %s %Lf", job_ptr->name, job_ptr->job_id, job_ptr->comment, comm_hops);
 			debug("Hops calculated according to communication matrix: %Lf", comm_hops);
 		}
 		//comment is either 0/1/1:x
