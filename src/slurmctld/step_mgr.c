@@ -77,6 +77,7 @@
 #include "src/slurmctld/slurmctld.h"
 #include "src/slurmctld/srun_comm.h"
 
+extern char** node_order;
 static void _build_pending_step(struct job_record  *job_ptr,
 				job_step_create_request_msg_t *step_specs);
 static int  _count_cpus(struct job_record *job_ptr, bitstr_t *bitmap,
@@ -4872,12 +4873,48 @@ extern struct step_record *build_extern_step(struct job_record *job_ptr)
 	return step_ptr;
 }
 
+char* join(char delimiter, size_t arrsize, const char* arr[]) {
+		size_t i;
+		size_t total;
+		char* joined;
+
+		for (i = total = 0; i < arrsize; i++) {
+			if (arr[i] != NULL) 
+				total += strlen(arr[i]) + 1; // size of c-style string + delimiter
+		}
+
+		// Note that last delimiter will actually be null termination
+		joined = (char*)malloc(sizeof(char) * total);
+
+		if (joined != NULL) {
+				// first character isn't guaranteed to be null termination
+				// set it so strcat works as intended, just in case
+				joined[0] = '\0';
+			for (i = 0; i < arrsize; i++) {
+				if (arr[i] != NULL) {
+					strcat(joined, arr[i]);
+
+					if ((i + 1) != arrsize) 
+						strncat(joined, &delimiter, 1);
+				}
+			}
+		}
+		return joined;
+}
 extern struct step_record *build_batch_step(struct job_record *job_ptr)
 {
 	struct step_record *step_ptr = _create_step_record(job_ptr, 0);
+	debug("build_batch_step inside step_mgr.c");
+
+	char* tempnodes = join(' ', job_ptr->node_cnt, node_order);
+	//debug("tempnodes: %s ", tempnodes);
+	free(node_order);
 
 	step_ptr->step_layout = fake_slurm_step_layout_create(
-		job_ptr->batch_host, NULL, NULL, 1, 1);
+		tempnodes, NULL, NULL, job_ptr->node_cnt, job_ptr->node_cnt);
+	free(tempnodes);
+	// step_ptr->step_layout = fake_slurm_step_layout_create(
+	// 	job_ptr->batch_host, NULL, NULL, 1, 1);
 	checkpoint_alloc_jobinfo(&step_ptr->check_job);
 	step_ptr->ext_sensors = ext_sensors_alloc();
 	step_ptr->name = xstrdup("batch");
