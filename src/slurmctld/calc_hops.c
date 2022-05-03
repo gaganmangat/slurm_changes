@@ -185,7 +185,8 @@ long double calc_hops_comm_matrix(int switches[], int size, struct job_record *j
                 }
         }
         fclose(fcomm); //close file
-        return comm_hops_total / 2; //since c[i][j] and c[j][i] should only be counted once for finding hop bytes
+        //return comm_hops_total / 2; //since c[i][j] and c[j][i] should only be counted once for finding hop bytes
+		return comm_hops_max;
 }
 
 //takes as input the xadj, adjncy, adjwgt, vsize parameters as required by METIS
@@ -265,7 +266,7 @@ idx_t* matrix_to_partition(int nodes, int edges, int* commpattern, int npart) {
         //         debug("adjncy[%d]: %d,  adjwgt[%d]: %d", i, adjncy[i], i, adjwgt[i]);
         // }
 
-        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 1);
+        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 0);
         //idx_t* part2 = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 1);
         //free(part2);
 
