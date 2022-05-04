@@ -185,8 +185,8 @@ long double calc_hops_comm_matrix(int switches[], int size, struct job_record *j
                 }
         }
         fclose(fcomm); //close file
-        //return comm_hops_total / 2; //since c[i][j] and c[j][i] should only be counted once for finding hop bytes
-		return comm_hops_max;
+        return comm_hops_total / 2; //since c[i][j] and c[j][i] should only be counted once for finding hop bytes
+		//return comm_hops_max;
 }
 
 //takes as input the xadj, adjncy, adjwgt, vsize parameters as required by METIS
@@ -613,7 +613,16 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
 void hop(struct job_record *job_ptr)
 {
 	FILE *f;
-	f = fopen ("/home/gagandeep/slurmcost/hops.txt", "a");
+	char* dir = getenv("SLURM_COST_DIR"); //environment variable SLURM_COST_DIR gives the path where to store the cost files
+	//debug("getenv successful with value %s", dir);
+	char path_hops[100];
+	char path_debug[100];
+	strcpy(path_hops, dir);
+	strcat(path_hops, "hops.txt");
+	strcpy(path_debug, dir);
+	strcat(path_debug, "debug.txt");
+       
+	f = fopen (path_hops, "a");
 	int i,j, begin, end,k=0;
 	int size = job_ptr->node_cnt;
 	int switches[size];
@@ -701,7 +710,7 @@ void hop(struct job_record *job_ptr)
 
 	// Add this information to a file
 	FILE *info;
-	info = fopen("/home/gagandeep/slurmcost/debug.txt","a");
+	info = fopen(path_debug,"a");
 	fputs(job_info,info); // Append jobinfo 
     fprintf(info,"\n");
 	
