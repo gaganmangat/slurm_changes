@@ -144,21 +144,21 @@ int dec_cmp_part(const void *a, const void *b) {
 }
 
 //calculated hop-bytes based on switches array (which gives which node is present on which switch) for the entire matrix
-long double calc_hops_comm_matrix(int switches[], int size, struct job_record *job_ptr) {
+uint64_t calc_hops_comm_matrix(int switches[], int size, struct job_record *job_ptr) {
         //file pointer to read communication pattern from communication file path
         FILE* fcomm = fopen(job_ptr->comment + 2, "r");         
         int nodes = job_ptr->node_cnt; //number of nodes required for job
         
         //scanning communication pattern from file (path provided in job comment parameter) and storing in commpattern 2D array
         int node1, node2;
-        long double val;
-        long double comm_hops_max = 0; //stores max hops encountered 
-        long double comm_hops_local;
-        long double comm_hops_total = 0; //total hop bytes
+        uint64_t val;
+        uint64_t comm_hops_max = 0; //stores max hops encountered 
+        uint64_t comm_hops_local;
+        uint64_t comm_hops_total = 0; //total hop bytes
 
         for (node1 = 0; node1 < nodes; node1++) {
                 for (node2 = 0; node2 < nodes; node2++) {
-                        fscanf(fcomm, "%Lf", &val);
+                        fscanf(fcomm, "%ld", &val);
 						//if mat[node1][node2] > 0
                         if (val > 0) {
                                 float c = 0, c1 = 0, c2 = 0, c3 = 0;
@@ -192,7 +192,7 @@ long double calc_hops_comm_matrix(int switches[], int size, struct job_record *j
 //takes as input the xadj, adjncy, adjwgt, vsize parameters as required by METIS
 //nodes gives total number of nodes, npart gives total number of required partitions
 //totalv is a boolean which denotes whether to use totalv or edgecut (default) as objective function
-idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, idx_t* vsize, int nodes, int npart, int totalv) {
+idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, int nodes, int npart, int totalv) {
         // debug("part array allocating");
         // debug("nodes: %d", nodes);
         idx_t* part = (idx_t*)malloc(nodes * sizeof(idx_t)); //partition array
@@ -202,7 +202,7 @@ idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, idx_t* vsiz
         idx_t objval; //stores the edge-cut or the total communication volume of the partitioning solution.
         idx_t options[METIS_NOPTIONS];
         METIS_SetDefaultOptions(options);
-        
+	options[METIS_OPTION_UFACTOR] = 400;        
 		//use totalv as objective (reduce the total communication volume)
 		//it makes use of the vsize array where vsize[i] denotes the data sent to all other nodes by node i
         if (totalv == 1) {
@@ -212,15 +212,15 @@ idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, idx_t* vsiz
                 // int ret = METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, vsize, 
                 //         NULL, &npart, NULL, NULL, options, &objval, part);
                 int ret = METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, NULL, 
-                        NULL, &npart, NULL, NULL, options, &objval, part);
-                debug("partitioning ret:%d (totalvol) : %d", ret, objval);
+                        adjwgt, &npart, NULL, NULL, options, &objval, part);
+                debug("partitioning ret:%d (totalvol) : %"PRIu32"", ret, objval);
         }
 		//use edgecut as objective (default)
 		//does not make use of vsize array
         else {
                 int ret = METIS_PartGraphKway(&nvtxs, &ncon, xadj, adjncy, NULL, NULL, 
-                        NULL, &npart, NULL, NULL, options, &objval, part);        
-                debug("partitioning ret:%d (edgecut) : %d", ret, objval);
+                        adjwgt, &npart, NULL, NULL, options, &objval, part);        
+                debug("partitioning ret:%d (edgecut) : %"PRIu32"", ret, objval);
         }
 
         // debug("graphtopartition complete");
@@ -229,23 +229,24 @@ idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, idx_t* vsiz
 }
 
 //takes as input the 2D comm matrix and generates the partitioning based on it
-idx_t* matrix_to_partition(int nodes, int edges, int* commpattern, int npart) {
+idx_t* matrix_to_partition(int nodes, int edges, uint64_t* commpattern, int npart) {
         idx_t* xadj = (idx_t*)malloc((nodes+1) * sizeof(idx_t)); //initialize xadj array
         idx_t* adjncy = (idx_t*)malloc((edges) * sizeof(idx_t)); //initialize adjncy array
         idx_t* adjwgt = (idx_t*)malloc((edges) * sizeof(idx_t)); //initialize adjwgt array
-        idx_t* vsize = (idx_t*)malloc((nodes) * sizeof(idx_t)); //vsize array (to be used when obj = minimize total comm volume)
+        //idx_t* vsize = (idx_t*)malloc((nodes) * sizeof(idx_t)); //vsize array (to be used when obj = minimize total comm volume)
 
         xadj[0] = 0; //start for vertex 0
         int k = 0; //to populate adjncy and adjwgt arrays
 
         for (int i = 0; i < nodes; i++) {
-                vsize[i] = 0;
+                //vsize[i] = 0;
                 int adj_edges = 0; //number of edges adjacent to vertex i
                 for (int j = 0; j < nodes; j++) {
-                        if (commpattern[i*nodes + j] > 0) {
+                        if (commpattern[i*nodes + j] / 4096 > 0) {
                                 adjncy[k] = j; //j is adjacent to i
-                                adjwgt[k] = commpattern[i*nodes + j]; //weight of edge i-j
-                                vsize[i] += commpattern[i*nodes + j]; //vertex i sends to j
+                                adjwgt[k] = commpattern[i*nodes + j] / 4096; //weight of edge i-j
+                                // debug("%"PRIu32"", adjwgt[k]);
+                                //vsize[i] += commpattern[i*nodes + j]; //vertex i sends to j
                                 k += 1;
                                 adj_edges += 1;
                         }
@@ -266,7 +267,7 @@ idx_t* matrix_to_partition(int nodes, int edges, int* commpattern, int npart) {
         //         debug("adjncy[%d]: %d,  adjwgt[%d]: %d", i, adjncy[i], i, adjwgt[i]);
         // }
 
-        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 0);
+        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, nodes, npart, 0);
         //idx_t* part2 = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 1);
         //free(part2);
 
@@ -277,7 +278,7 @@ idx_t* matrix_to_partition(int nodes, int edges, int* commpattern, int npart) {
         free(xadj);
         free(adjncy);
         free(adjwgt);
-        free(vsize);
+        //free(vsize);
 
         return part;
 } 
@@ -340,13 +341,13 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
         int jobnodes = want_nodes; //number of nodes required to job
 
         FILE* fcomm = fopen(job_ptr->comment + 2, "r"); //open the file containing comm matrix
-        int* commpattern = (int*)malloc(jobnodes * jobnodes * sizeof(int)); //allocate memory for n x n comm matrix
+        uint64_t* commpattern = (uint64_t*)malloc(jobnodes * jobnodes * sizeof(uint64_t)); //allocate memory for n x n comm matrix
         int edges = 0; //number of edges in graph (each edge is counted twice for undirected graph)
         
         //scanning communication pattern from file (path provided in job comment parameter) and storing in commpattern 2D array
         for (i = 0; i < jobnodes; i++) {
                 for (j = 0; j < jobnodes; j++) {
-                        fscanf(fcomm, "%d", &commpattern[i*jobnodes + j]);
+                        fscanf(fcomm, "%ld", &commpattern[i*jobnodes + j]);
                         if (commpattern[i*jobnodes + j] > 0) 
                                 edges += 1; //increment number of edges if non-zero communication
                 }
@@ -390,21 +391,19 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
 
                 //while there are required nodes AND required nodes are greater than median number of free nodes, then partition the graph
                 while (want_nodes && want_nodes > node_cnt_array[median_switch].free_nodes && partition_level < 5) {
-                        median_switch = switch_record_cnt - 1; //initialize as switch with least free nodes (should be a non-leaf switch)
-                        //decrement until we find a leaf switch with free nodes
-                        while (node_cnt_array[median_switch].free_nodes == 0) median_switch -= 1;
-                        median_switch /= 2; //get the median switch as (0 + median_switch) / 2
-
                         //if #free_nodes in median_switch=0, find the next switch containing free nodes
                         int median_free_nodes = node_cnt_array[median_switch].free_nodes;
                         
+                        // if (median_free_nodes == 0) break;
+
                         //number of partitions = ceil(total remaining nodes / median number of free nodes)
                         debug("want_nodes:%d median_switch:%d median_free_nodes:%d", want_nodes, node_cnt_array[median_switch].switch_idx, median_free_nodes);
-                        nparts = ceil((double)want_nodes / median_free_nodes);
+                        nparts = ceil(want_nodes / (float)median_free_nodes);
                         //nparts = 2; //just for testing
                         debug("#partitions: %d", nparts);
                         
                         //find the partitions from the 2D comm matrix
+                        debug("pattern: %s", job_ptr->comment);
                         part = matrix_to_partition(want_nodes, edges, commpattern, nparts); //part[i] gives partition number for node i
                         debug("Partitioning level %d completed", partition_level);
 
@@ -425,16 +424,20 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                         // for (int i = 0; i < nparts; i++) debug("%d %d", partsize[i].no, partsize[i].size);
                         qsort(partsize, nparts, sizeof(part_struct), dec_cmp_part); //sort partsize in dec order
 
-                        // for (int i = 0; i < nparts; i++) {
-                        //         debug("partition%d size: %d", partsize[i].no, partsize[i].size);
-                        // }
+                        for (int i = 0; i < nparts; i++) {
+                                debug("partition%d size: %d", partsize[i].no, partsize[i].size);
+                        }
 
                         int k = 0; //to iterate switches
-                        int* part_alloc = malloc(nparts * sizeof(int)); //to track if the nodes in the partition were allocated to a switch
+                        int* part_alloc = (int*)malloc(nparts * sizeof(int)); //to track if the nodes in the partition were allocated to a switch
                         for (i = 0; i < nparts; i++) part_alloc[i] = 0;
 
                         //iterate partitions one by one in dec order
                         for (i = 0; i < nparts; i++) {
+                                if (partsize[i].size == 0) {
+                                        part_alloc[partsize[i].no] = 1;
+                                        continue;
+                                }
                                 //if kth switch (in order of maximum free nodes) can accomodate current partsize, allocate nodes from it
                                 if (node_cnt_array[k].free_nodes >= partsize[i].size) {
                                         int switchno = node_cnt_array[k].switch_idx;
@@ -452,7 +455,7 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                         int unalloc_nodes = 0; //number of nodes from partitions that were unallocated
                         for (i = 0; i < nparts; i++) {
                                 //if current partition was unallocated
-                                if (part_alloc[i] == 0) {
+                                if (part_alloc[partsize[i].no] == 0) {
                                         unalloc_nodes += partsize[i].size; //add all nodes from unallocated partition
                                 }
                         }
@@ -471,7 +474,7 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                                 // debug("groups array created");
 
                                 //allocate memory for new comm matrix
-                                int* commpattern_new = (int*)malloc(unalloc_nodes * unalloc_nodes * sizeof(int)); 
+                                uint64_t* commpattern_new = (uint64_t*)malloc(unalloc_nodes * unalloc_nodes * sizeof(uint64_t)); 
                                 //Construct new communication matrix consisting of nodes from unallocated partitions
                                 edges = 0;
                                 for (int i = 0; i < unalloc_nodes; i++) {
@@ -497,6 +500,11 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                         free(partsize);
                         free(part);
                         free(part_alloc);
+
+                        median_switch = switch_record_cnt - 1; //initialize as switch with least free nodes (should be a non-leaf switch)
+                        //decrement until we find a leaf switch with free nodes
+                        while (node_cnt_array[median_switch].free_nodes == 0) median_switch -= 1;
+                        median_switch /= 2; //get the median switch as (0 + median_switch) / 2
                 }
                 free(groups); //free groups array
                 
@@ -733,11 +741,11 @@ void hop(struct job_record *job_ptr)
 	/**** Writing to debug file over **/	
 
 	char temp[2000];
-	long double comm_hops_max = 0;
+	uint64_t comm_hops_max = 0;
         comm_hops_max = calc_hops_comm_matrix(switches, size, job_ptr);
 
         sprintf(temp,"%s %"PRIu32" %s %Lf",job_ptr->name, job_ptr->job_id, job_ptr->comment, comm_hops_max);
-        debug("Hops calculated according to communication pattern: %Lf", comm_hops_max);
+        debug("Hops calculated according to communication pattern: %"PRIu64"", comm_hops_max);
 
 
 	
