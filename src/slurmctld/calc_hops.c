@@ -232,7 +232,7 @@ long double calc_hops_comm_matrix(int switches[], int size, struct job_record *j
                         if (val > 0) {
                                 float c = 0, c1 = 0, c2 = 0, c3 = 0;
                                 if (switches[node1] == switches[node2]) {
-										//find contention factor
+                                                				//find contention factor
                                         c = (switch_record_table[switches[node1]].comm_jobs) / ((float)switch_record_table[switches[node1]].num_nodes);
                                         comm_hops_local = 2 * val * (1 + c); 
                                 }
@@ -257,8 +257,49 @@ long double calc_hops_comm_matrix(int switches[], int size, struct job_record *j
         return comm_hops_total / 2; //since c[i][j] and c[j][i] should only be counted once for finding hop bytes
 }
 
+//system call for topomatch
+void tm_systemcall(char* jobcomment, char* bindpath) {
+        char* dir = getenv("TOPO_FILE"); //environment variable TOPO_FILE gives the path of the python script which generates the required output
+	char command[200];
+	strcpy(command, "python3 ");
+	strcat(command, dir);
+	
+        //add command line arguments for python script
+        strcat(command, " ");
+        strcat(command, jobcomment); //give jobcomment as first argument 
+        strcat(command, " ");
+        strcat(command, bindpath); //give bind file path as second argument (filename: jobid.bind)
+        debug("%s", command);
+        system(command);
+        //the system python command writes the switches array to the file /home/gagandeep/topo_op/jobid.op
+
+//The below code is to see the output of the system call
+/*
+        FILE *fp;
+        char buf[1000];
+        if ((fp = popen(command, "r")) == NULL) {
+                printf("Error opening pipe!\n");
+                return -1;
+        }
+
+        while (fgets(buf, 1000, fp) != NULL) {
+                // Do whatever you want here...
+                printf("OUTPUT: %s", buf);
+        }
+
+        if (pclose(fp)) {
+                printf("Command not found or exited with error status\n");
+                return -1;
+        }
+*/
+        return;
+}
+
+
 void hop(struct job_record *job_ptr)
 {
+        int topomatch = 1; //variable which denotes whether to use default allocation or default + topomatch allocation
+
 	FILE *f;
 	char* dir = getenv("SLURM_COST_DIR"); //environment variable SLURM_COST_DIR gives the path where to store the cost files
 	//debug("getenv successful with value %s", dir);
@@ -273,6 +314,7 @@ void hop(struct job_record *job_ptr)
 	int i, begin, end;
 	int size = job_ptr->node_cnt;
 	int switches[size];
+        int switches_topo[size];
 	int index = 0;
 	struct node_record *node_ptr;
 	int nunique = 0; // Find number of unique leaf switches
@@ -281,6 +323,8 @@ void hop(struct job_record *job_ptr)
         size = pow(2,ceil(log(size)/log(2)));
         //debug("Original size:%d, switch levels:%d",size,switch_levels);
 
+        char select_nodes[10000]; //to store the selected nodes for the allocation
+        select_nodes[0] = '\0';
 
 	begin = bit_ffs(job_ptr->node_bitmap);
 	if (begin >=0 )
@@ -290,7 +334,7 @@ void hop(struct job_record *job_ptr)
 	for (i=begin; i<=end; i++){
 		if(!bit_test(job_ptr->node_bitmap, i))
 			continue;
-		node_ptr = node_record_table_ptr + i;
+                node_ptr = node_record_table_ptr + i;
 		switches[index]= node_ptr->leaf_switch;
 		if (prev != node_ptr->leaf_switch){
 			// Leaf switch has changed
@@ -299,9 +343,73 @@ void hop(struct job_record *job_ptr)
 		}
 		/*debug("Node name = %s , switches[%d]=%d",
 			node_ptr->name,index,switches[index]);*/
-		index+=1;
+		
+                strcat(select_nodes, node_ptr->name); //copy selected node name 
+                strcat(select_nodes, " "); //add space
+                index+=1;
 	}
-	/**** Writing to the debug file ***/
+        // debug("Nodes:: %s", select_nodes);
+
+        //Default + Topomatch 
+        //Make system call to get topomatch output on the selected nodes, and read the output from output file
+        if (topomatch == 1) {
+                //Write the selected nodes to binds file (filename: jobid.bind)
+                dir = getenv("TOPO_BIND_DIR"); //environment variable TOPO_BIND_DIR gives the path where to store the bind files
+                // dir = "/home/gagandeep/binds/";
+                char path_bind[1000];
+                strcpy(path_bind, dir);
+                // debug("%s", path_bind);
+                char strjobid[10];
+                sprintf(strjobid, "%d", job_ptr->job_id);
+                strcat(path_bind, strjobid);
+                // debug("%s", path_bind);
+                strcat(path_bind, ".bind");
+                // debug("bind: %s", path_bind);
+
+                FILE* fbind = fopen(path_bind, "w");
+                fprintf(fbind, "%s", select_nodes);
+                fclose(fbind);
+
+                tm_systemcall(job_ptr->comment, path_bind); //topomatch system call function
+
+                //Read switches array from topomatch output file
+                dir = getenv("TOPO_OP_DIR"); //environment variable TOPO_OP_DIR gives the path where to store the output files (switches file from topomatch output)
+                // dir = "/home/gagandeep/topo_op/";
+                char path_topo[1000];
+                strcpy(path_topo, dir);
+                strcat(path_topo, strjobid);
+                strcat(path_topo, ".op");
+                // debug("topo: %s", path_topo);
+                
+                FILE* ftopo = fopen(path_topo, "r");
+                if (ftopo == NULL) {
+                        debug("Error opening topo output file, error in topomatch command");
+                }
+                else {
+                        char buffer[5000];
+                        fgets(buffer, 5000, ftopo);
+                        // debug("%s", buffer);
+                        int k = 0;
+                        
+                        char *token = strtok(buffer, ",");
+                        while (token) {
+                                switches_topo[k] = atoi(token);
+                                if (strcmp(job_ptr->comment, "1:/home/gagandeep/matrices/comm_tau_miniFE_4_32_8_.mat") == 0)
+                                
+                                // debug("switches_topo[%d]: %d", k, switches_topo[k]);
+                                k += 1;
+                                token = strtok(NULL, ",");
+                        }
+
+                        // for (int i = 0; i < size; i++) {
+                        //         debug("Rank %d on switch %d", i, switches_topo[i]);
+                        // }
+                }
+                fclose(ftopo);
+        
+        }
+
+        /**** Writing to the debug file ***/
 	// Now create the consolidated arrays
 	int switch_arr[nunique];
 	int alloc_arr[nunique];
@@ -443,7 +551,15 @@ void hop(struct job_record *job_ptr)
 
 		//if communication matrix path is given
 		if (strlen(job_ptr->comment) > 3) {
-			long double comm_hops = calc_hops_comm_matrix(switches, size, job_ptr);
+                        long double comm_hops;
+                        //calculate hops for default + topomatch
+                        if (topomatch == 1) {
+                                comm_hops = calc_hops_comm_matrix(switches_topo, size, job_ptr);
+                        }
+                        //calculate hops for default
+                        else {
+                                comm_hops = calc_hops_comm_matrix(switches, size, job_ptr);
+                        }
 			sprintf(temp,"%s %"PRIu32" %s %Lf", job_ptr->name, job_ptr->job_id, job_ptr->comment, comm_hops);
 			debug("Hops calculated according to communication matrix: %Lf", comm_hops);
 		}
