@@ -26,6 +26,8 @@ extern struct switch_record *switch_record_table;
 extern int switch_record_cnt;
 uint32_t* node_cnt;
 
+#define MAX_PARTITION_LEVEL 5
+
 #define SWITCH_ORDER_SIZE 100
 extern struct table *alloc_node_table;
 extern struct table *switch_idx_table;
@@ -144,21 +146,21 @@ int dec_cmp_part(const void *a, const void *b) {
 }
 
 //calculated hop-bytes based on switches array (which gives which node is present on which switch) for the entire matrix
-uint64_t calc_hops_comm_matrix(int switches[], int size, struct job_record *job_ptr) {
+long double calc_hops_comm_matrix(int switches[], int size, struct job_record *job_ptr) {
         //file pointer to read communication pattern from communication file path
         FILE* fcomm = fopen(job_ptr->comment + 2, "r");         
         int nodes = job_ptr->node_cnt; //number of nodes required for job
         
         //scanning communication pattern from file (path provided in job comment parameter) and storing in commpattern 2D array
         int node1, node2;
-        uint64_t val;
-        uint64_t comm_hops_max = 0; //stores max hops encountered 
-        uint64_t comm_hops_local;
-        uint64_t comm_hops_total = 0; //total hop bytes
+        long double val;
+        long double comm_hops_max = 0; //stores max hops encountered 
+        long double comm_hops_local;
+        long double comm_hops_total = 0; //total hop bytes
 
         for (node1 = 0; node1 < nodes; node1++) {
                 for (node2 = 0; node2 < nodes; node2++) {
-                        fscanf(fcomm, "%ld", &val);
+                        fscanf(fcomm, "%Lf", &val);
 						//if mat[node1][node2] > 0
                         if (val > 0) {
                                 float c = 0, c1 = 0, c2 = 0, c3 = 0;
@@ -340,6 +342,8 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
         idx_t* part; //array to store partition
         int jobnodes = want_nodes; //number of nodes required to job
 
+        // debug("%d %d", sizeof(uint64_t), sizeof(long double));
+
         FILE* fcomm = fopen(job_ptr->comment + 2, "r"); //open the file containing comm matrix
         uint64_t* commpattern = (uint64_t*)malloc(jobnodes * jobnodes * sizeof(uint64_t)); //allocate memory for n x n comm matrix
         int edges = 0; //number of edges in graph (each edge is counted twice for undirected graph)
@@ -381,7 +385,7 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                         return;
                 }
 
-                int* groups = (int*)malloc(5 * jobnodes * sizeof(int)); //groups array to maintain original ranks (will be used when partitioning level >= 1)
+                int* groups = (int*)malloc(MAX_PARTITION_LEVEL * jobnodes * sizeof(int)); //groups array to maintain original ranks (will be used when partitioning level >= 1)
 
                 int median_switch = switch_record_cnt - 1; //initialize as switch with least free nodes (should be a non-leaf switch)
                 //decrement until we find a leaf switch with free nodes
@@ -390,7 +394,7 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                 //median_switch now contains the index of the median switch in the switch_record_cnt array
 
                 //while there are required nodes AND required nodes are greater than median number of free nodes, then partition the graph
-                while (want_nodes && want_nodes > node_cnt_array[median_switch].free_nodes && partition_level < 5) {
+                while (want_nodes && want_nodes > node_cnt_array[median_switch].free_nodes && partition_level < MAX_PARTITION_LEVEL) {
                         //if #free_nodes in median_switch=0, find the next switch containing free nodes
                         int median_free_nodes = node_cnt_array[median_switch].free_nodes;
                         
@@ -741,14 +745,12 @@ void hop(struct job_record *job_ptr)
 	/**** Writing to debug file over **/	
 
 	char temp[2000];
-	uint64_t comm_hops_max = 0;
+	long double comm_hops_max = 0;
         comm_hops_max = calc_hops_comm_matrix(switches, size, job_ptr);
 
         sprintf(temp,"%s %"PRIu32" %s %Lf",job_ptr->name, job_ptr->job_id, job_ptr->comment, comm_hops_max);
-        debug("Hops calculated according to communication pattern: %"PRIu64"", comm_hops_max);
+        debug("Hops calculated according to communication pattern: %Lf", comm_hops_max);
 
-
-	
 	fputs(temp,f);
 	fprintf(f,"\n");
 	fclose(f);
