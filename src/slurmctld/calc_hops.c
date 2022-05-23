@@ -298,7 +298,7 @@ void tm_systemcall(char* jobcomment, char* bindpath) {
 
 void hop(struct job_record *job_ptr)
 {
-        int topomatch = 1; //variable which denotes whether to use default allocation or default + topomatch allocation
+        int topomatch = 0; //variable which denotes whether to use default allocation or default + topomatch allocation
 
 	FILE *f;
 	char* dir = getenv("SLURM_COST_DIR"); //environment variable SLURM_COST_DIR gives the path where to store the cost files
@@ -364,7 +364,7 @@ void hop(struct job_record *job_ptr)
                 strcat(path_bind, strjobid);
                 // debug("%s", path_bind);
                 strcat(path_bind, ".bind");
-                // debug("bind: %s", path_bind);
+                debug("bind: %s", path_bind);
 
                 FILE* fbind = fopen(path_bind, "w");
                 fprintf(fbind, "%s", select_nodes);
@@ -379,7 +379,7 @@ void hop(struct job_record *job_ptr)
                 strcpy(path_topo, dir);
                 strcat(path_topo, strjobid);
                 strcat(path_topo, ".op");
-                // debug("topo: %s", path_topo);
+                debug("topo: %s", path_topo);
                 
                 FILE* ftopo = fopen(path_topo, "r");
                 if (ftopo == NULL) {
@@ -394,8 +394,6 @@ void hop(struct job_record *job_ptr)
                         char *token = strtok(buffer, ",");
                         while (token) {
                                 switches_topo[k] = atoi(token);
-                                if (strcmp(job_ptr->comment, "1:/home/gagandeep/matrices/comm_tau_miniFE_4_32_8_.mat") == 0)
-                                
                                 // debug("switches_topo[%d]: %d", k, switches_topo[k]);
                                 k += 1;
                                 token = strtok(NULL, ",");
@@ -406,7 +404,7 @@ void hop(struct job_record *job_ptr)
                         // }
                 }
                 fclose(ftopo);
-        
+        	debug("switches_topo loaded");
         }
 
         /**** Writing to the debug file ***/
