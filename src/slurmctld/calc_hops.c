@@ -194,7 +194,7 @@ long double calc_hops_comm_matrix(int switches[], int size, struct job_record *j
 //takes as input the xadj, adjncy, adjwgt, vsize parameters as required by METIS
 //nodes gives total number of nodes, npart gives total number of required partitions
 //totalv is a boolean which denotes whether to use totalv or edgecut (default) as objective function
-idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, int nodes, int npart, int totalv) {
+idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, int nodes, int npart, int totalv, float part_ufactor) {
         // debug("part array allocating");
         // debug("nodes: %d", nodes);
         idx_t* part = (idx_t*)malloc(nodes * sizeof(idx_t)); //partition array
@@ -204,7 +204,15 @@ idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, int nodes, 
         idx_t objval; //stores the edge-cut or the total communication volume of the partitioning solution.
         idx_t options[METIS_NOPTIONS];
         METIS_SetDefaultOptions(options);
-	options[METIS_OPTION_UFACTOR] = 400;        
+	// options[METIS_OPTION_UFACTOR] = 1000;
+        //METIS_OPTION_UFACTOR 1.5 denotes the size of largest partition is 1.5 times the average, the factor in this case should be 500
+        float ufactor = (part_ufactor - 1) * 1000; //factor = (1 - reqfactor) * 1000
+        if (ufactor == 0) {
+                ufactor = 30; //default value is 30. i.e. factor of 1.03
+        }
+        options[METIS_OPTION_UFACTOR] = ufactor;
+        debug("ufactor for partitioning: %f", ufactor);
+
 		//use totalv as objective (reduce the total communication volume)
 		//it makes use of the vsize array where vsize[i] denotes the data sent to all other nodes by node i
         if (totalv == 1) {
@@ -231,7 +239,7 @@ idx_t* graph_to_partition(idx_t* xadj, idx_t* adjncy, idx_t* adjwgt, int nodes, 
 }
 
 //takes as input the 2D comm matrix and generates the partitioning based on it
-idx_t* matrix_to_partition(int nodes, int edges, uint64_t* commpattern, int npart) {
+idx_t* matrix_to_partition(int nodes, int edges, uint64_t* commpattern, int npart, float part_ufactor) {
         idx_t* xadj = (idx_t*)malloc((nodes+1) * sizeof(idx_t)); //initialize xadj array
         idx_t* adjncy = (idx_t*)malloc((edges) * sizeof(idx_t)); //initialize adjncy array
         idx_t* adjwgt = (idx_t*)malloc((edges) * sizeof(idx_t)); //initialize adjwgt array
@@ -269,7 +277,7 @@ idx_t* matrix_to_partition(int nodes, int edges, uint64_t* commpattern, int npar
         //         debug("adjncy[%d]: %d,  adjwgt[%d]: %d", i, adjncy[i], i, adjwgt[i]);
         // }
 
-        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, nodes, npart, 0);
+        idx_t* part = graph_to_partition(xadj, adjncy, adjwgt, nodes, npart, 0, part_ufactor);
         //idx_t* part2 = graph_to_partition(xadj, adjncy, adjwgt, vsize, nodes, npart, 1);
         //free(part2);
 
@@ -408,7 +416,8 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                         
                         //find the partitions from the 2D comm matrix
                         debug("pattern: %s", job_ptr->comment);
-                        part = matrix_to_partition(want_nodes, edges, commpattern, nparts); //part[i] gives partition number for node i
+                        float part_ufactor = node_cnt_array[0].free_nodes / (float)median_free_nodes; //unbalanced factor for partitions
+                        part = matrix_to_partition(want_nodes, edges, commpattern, nparts, part_ufactor); //part[i] gives partition number for node i
                         debug("Partitioning level %d completed", partition_level);
 
                         part_struct* partsize = (part_struct*)malloc(nparts * sizeof(part_struct));
