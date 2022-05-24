@@ -415,7 +415,7 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
                         debug("#partitions: %d", nparts);
                         
                         //find the partitions from the 2D comm matrix
-                        debug("pattern: %s", job_ptr->comment);
+                        // debug("pattern: %s", job_ptr->comment);
                         float part_ufactor = node_cnt_array[0].free_nodes / (float)median_free_nodes; //unbalanced factor for partitions
                         part = matrix_to_partition(want_nodes, edges, commpattern, nparts, part_ufactor); //part[i] gives partition number for node i
                         debug("Partitioning level %d completed", partition_level);
@@ -618,6 +618,7 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
 	free(node_alloc);
 	free(commpattern);
 
+/*
 	for (i = 0; i < switch_record_cnt; i++) {
 			if (switch_alloc_nodes[i] == 0) continue;
 			debug("SWITCH %d ALLOCATED NODES:-", i);
@@ -625,6 +626,7 @@ void combal_alloc(struct job_record *job_ptr, uint32_t* switch_node_cnt, int* sw
 					debug("%d", switch2node[i*jobnodes + j]);
 			}
 	}
+*/
 	//debug("returning from combal()");
 	return;
 }
